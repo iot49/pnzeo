@@ -53,6 +53,8 @@ uv run --with pillow pnzeo_cam.py record 10 --gray
 The snapshot and record commands themselves have no dependencies; only
 `--gray` pulls in Pillow.
 
+![--gray snapshot in low light](docs/example-gray.jpg)
+
 The camera address, user, and password default to `192.168.178.58`, `admin`,
 and empty. Override per command:
 
