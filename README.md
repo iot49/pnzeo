@@ -28,6 +28,21 @@ git clone https://github.com/iot49/pnzeo.git
 cd pnzeo
 ```
 
+### Use from another project (uv)
+
+```bash
+# add as a dependency
+uv add "pnzeo @ git+https://github.com/iot49/pnzeo"
+#   then:  from pnzeo_cam import Camera
+
+# with the optional grayscale support (pulls in Pillow)
+uv add "pnzeo[gray] @ git+https://github.com/iot49/pnzeo"
+
+# or run the CLI without installing
+uvx --from "git+https://github.com/iot49/pnzeo" pnzeo snap
+uvx --from "pnzeo[gray] @ git+https://github.com/iot49/pnzeo" pnzeo snap --gray
+```
+
 ## Command line
 
 ```bash

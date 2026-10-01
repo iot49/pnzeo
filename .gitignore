@@ -5,3 +5,9 @@ clip_*.avi
 *.jpeg
 *.avi
 *.mjpeg
+
+# Python build / env
+dist/
+*.egg-info/
+__pycache__/
+.venv/
