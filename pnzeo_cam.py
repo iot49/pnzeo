@@ -115,13 +115,17 @@ def _to_gray(jpeg_bytes):
 def _content_length(fp):
     """Read multipart part headers, return the body length, or None at stream end."""
     length = None
+    headers = False
     while True:
         line = fp.readline()
         if not line:
             return None
         line = line.strip()
-        if not line:  # blank line ends the headers
-            return length
+        if not line:
+            if headers:  # blank line after headers ends them
+                return length
+            continue  # CRLF before the boundary
+        headers = True
         if line.lower().startswith(b"content-length:"):
             length = int(line.split(b":", 1)[1])
 
@@ -160,7 +164,7 @@ def _write_mjpeg_avi(path, frames, fps):
     if not frames:
         raise RuntimeError("no frames captured")
     width, height = _jpeg_size(frames[0])
-    rate = max(1, round(fps))
+    rate = max(1, round(fps * 1000))  # strh rate/scale = fps, scale 1000
     us_per_frame = int(1_000_000 / fps) if fps > 0 else 1_000_000
 
     def chunk(fourcc, payload):
@@ -168,18 +172,18 @@ def _write_mjpeg_avi(path, frames, fps):
         return fourcc + struct.pack("<I", len(payload)) + payload + pad
 
     # movi: each frame as a '00dc' chunk
-    movi_body = b"movi"
+    parts = [b"movi"]
     index = []
     offset = 4  # relative to movi_body start, after the 'movi' fourcc
     for jpg in frames:
         index.append((offset, len(jpg)))
-        movi_body += chunk(b"00dc", jpg)
+        parts.append(chunk(b"00dc", jpg))
         offset += 8 + len(jpg) + (len(jpg) & 1)
+    movi_body = b"".join(parts)
     movi = b"LIST" + struct.pack("<I", len(movi_body)) + movi_body
 
-    idx1 = b""
-    for off, size in index:
-        idx1 += struct.pack("<4sIII", b"00dc", 0x10, off, size)
+    idx1 = b"".join(struct.pack("<4sIII", b"00dc", 0x10, off, size)
+                    for off, size in index)
     idx1 = chunk(b"idx1", idx1)
 
     max_bytes = max(len(f) for f in frames)
@@ -187,7 +191,7 @@ def _write_mjpeg_avi(path, frames, fps):
                        us_per_frame, 0, 0, 0x10, len(frames), 0, 1,
                        max_bytes, width, height, 0, 0, 0, 0)
     strh = struct.pack("<4s4sIHHIIIIIIIIhhhh",
-                       b"vids", b"MJPG", 0, 0, 0, 0, 1, rate, 0, len(frames),
+                       b"vids", b"MJPG", 0, 0, 0, 0, 1000, rate, 0, len(frames),
                        max_bytes, 0xFFFFFFFF, 0, 0, 0, width, height)
     strf = struct.pack("<IiiHH4sIiiII",
                        40, width, height, 1, 24, b"MJPG",
@@ -231,11 +235,8 @@ def _encode_h264(path, frames, fps, crf):
            "-pix_fmt", "yuv420p", path]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    for jpg in frames:
-        p.stdin.write(jpg)
-    p.stdin.close()
-    err = p.stderr.read()
-    if p.wait() != 0:
+    _, err = p.communicate(b"".join(frames))
+    if p.returncode != 0:
         raise SystemExit("ffmpeg failed:\n" + err.decode("utf-8", "replace")[-800:])
 
 
