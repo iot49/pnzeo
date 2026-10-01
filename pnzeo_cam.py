@@ -87,6 +87,9 @@ class Camera:
             jpegs.append(jpg)
             if time.monotonic() - start >= seconds:
                 break
+        if not jpegs:
+            raise RuntimeError("camera sent no frames; another connection may be "
+                               "stalled or just closed, try again")
         elapsed = time.monotonic() - start
         fps = len(jpegs) / elapsed if elapsed > 0 else 1.0
         return jpegs, fps

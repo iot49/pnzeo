@@ -65,3 +65,9 @@ def test_ffmpeg_failure_reports_its_error(tmp_path, monkeypatch):
     frames = [b"\0" * 1_000_000] * 4  # more than a pipe buffer
     with pytest.raises(SystemExit, match="boom"):
         p._encode_h264(tmp_path / "out.mp4", frames, 9.0, 23)
+
+
+def test_empty_stream_says_try_again(monkeypatch):
+    monkeypatch.setattr(p.Camera, "frames", lambda self, timeout, gray: iter(()))
+    with pytest.raises(RuntimeError, match="try again"):
+        p.Camera("camera").record("unused.avi", seconds=1)
