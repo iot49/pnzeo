@@ -1,8 +1,9 @@
 # pnzeo
 
 Take pictures and movies from a **Pnzeo W3** IP camera (and other
-`IPCamera-Web` / ismartol-platform cameras) from Python — standard library
-only, no `ffmpeg` or `opencv`.
+`IPCamera-Web` / ismartol-platform cameras) from Python. Snapshots and AVI
+recordings use the standard library only; `--gray` needs Pillow and `--mp4`
+needs ffmpeg.
 
 The camera exposes a standard mjpg-streamer HTTP interface behind Basic auth:
 
@@ -11,7 +12,12 @@ The camera exposes a standard mjpg-streamer HTTP interface behind Basic auth:
 | `/media/?action=snapshot`  | one JPEG (1920×1080)                       |
 | `/media/?action=stream`    | multipart MJPEG (~9 fps at 1080p)         |
 
-Only port 80 is open — there is no RTSP.
+Only port 80 is open — there is no RTSP. HTTP serves only 1920×1080; the
+camera ignores resolution parameters on these endpoints.
+
+The camera sends the stream to more than one reader, at a lower frame rate
+each. A new stream comes back empty while another connection is stalled or was
+just dropped; `record` then fails with "camera sent no frames". Try again.
 
 ## Credentials
 
@@ -37,6 +43,9 @@ uv add "pnzeo @ git+https://github.com/iot49/pnzeo"
 
 # with the optional grayscale support (pulls in Pillow)
 uv add "pnzeo[gray] @ git+https://github.com/iot49/pnzeo"
+
+# with the optional MP4 support (pulls in an ffmpeg binary)
+uv add "pnzeo[mp4] @ git+https://github.com/iot49/pnzeo"
 
 # or run the CLI without installing
 uvx --from "git+https://github.com/iot49/pnzeo" pnzeo snap
@@ -114,6 +123,12 @@ This re-encodes already-compressed JPEG frames, so it is a second lossy
 generation — a touch worse than a native camera H.264 stream would be, but the
 camera does not expose one locally (HTTP/MJPEG only). `--crf` sets quality
 (lower = better/larger, default 23). `--gray` and `--mp4` combine.
+
+## Development
+
+```bash
+uv run pytest
+```
 
 ## License
 
