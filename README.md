@@ -87,6 +87,7 @@ from pnzeo_cam import Camera
 cam = Camera("192.168.178.58")        # user="admin", password="" by default
 cam.snapshot("front.jpg")
 cam.record("door.avi", seconds=10)    # Motion-JPEG AVI, plays in QuickTime/VLC
+cam.record_mp4("door.mp4", seconds=10) # H.264 MP4, much smaller (needs ffmpeg)
 
 for jpg in cam.frames():              # raw JPEG bytes from the MJPEG stream
     process(jpg)
@@ -97,7 +98,22 @@ for jpg in cam.frames():              # raw JPEG bytes from the MJPEG stream
 `record()` writes a **Motion-JPEG AVI** with a minimal built-in writer, so no
 external tools are needed. The file plays in QuickTime, VLC, and `ffmpeg`. Each
 frame keeps the camera's native resolution; the frame rate is measured from the
-capture and written into the container.
+capture and written into the container. The catch is size: every frame is a
+full JPEG, so a clip runs ~75 MB/min at 1080p.
+
+`--mp4` transcodes to **H.264** instead, which is several times smaller because
+it encodes only what changes between frames. It needs an ffmpeg binary;
+`imageio-ffmpeg` bundles one:
+
+```bash
+uv run --with imageio-ffmpeg pnzeo_cam.py record 10 --mp4
+uv run --with imageio-ffmpeg pnzeo_cam.py record 10 --mp4 --crf 20   # higher quality
+```
+
+This re-encodes already-compressed JPEG frames, so it is a second lossy
+generation — a touch worse than a native camera H.264 stream would be, but the
+camera does not expose one locally (HTTP/MJPEG only). `--crf` sets quality
+(lower = better/larger, default 23). `--gray` and `--mp4` combine.
 
 ## License
 

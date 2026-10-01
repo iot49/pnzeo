@@ -23,6 +23,7 @@ import argparse
 import base64
 import os
 import struct
+import subprocess
 import sys
 import time
 import urllib.request
@@ -68,6 +69,18 @@ class Camera:
     def record(self, path=None, seconds=10, timeout=10, gray=False):
         """Record the MJPEG stream to a Motion-JPEG AVI. Returns (path, nframes, fps)."""
         path = path or f"clip_{_stamp()}.avi"
+        jpegs, fps = self._capture(seconds, timeout, gray)
+        _write_mjpeg_avi(path, jpegs, fps)
+        return path, len(jpegs), fps
+
+    def record_mp4(self, path=None, seconds=10, timeout=10, gray=False, crf=23):
+        """Record and transcode to an H.264 MP4 (much smaller). Returns (path, nframes, fps)."""
+        path = path or f"clip_{_stamp()}.mp4"
+        jpegs, fps = self._capture(seconds, timeout, gray)
+        _encode_h264(path, jpegs, fps, crf)
+        return path, len(jpegs), fps
+
+    def _capture(self, seconds, timeout, gray):
         jpegs = []
         start = time.monotonic()
         for jpg in self.frames(timeout, gray):
@@ -76,8 +89,7 @@ class Camera:
                 break
         elapsed = time.monotonic() - start
         fps = len(jpegs) / elapsed if elapsed > 0 else 1.0
-        _write_mjpeg_avi(path, jpegs, fps)
-        return path, len(jpegs), fps
+        return jpegs, fps
 
 
 # ---- Optional grayscale (the app's "B&W" toggle) ----------------------------
@@ -191,6 +203,42 @@ def _write_mjpeg_avi(path, frames, fps):
         f.write(b"RIFF" + struct.pack("<I", len(body)) + body)
 
 
+# ---- Optional H.264 transcode (smaller files than Motion-JPEG) --------------
+# Pipe the captured JPEGs into ffmpeg as an MJPEG stream and re-encode to H.264.
+# This is lossy -> lossy (a second compression generation), so a touch worse
+# than the camera's own H.264 would be, but far smaller than the AVI. Needs an
+# ffmpeg binary; imageio-ffmpeg bundles one:
+#   uv run --with imageio-ffmpeg pnzeo_cam.py record 10 --mp4
+
+def _ffmpeg_exe():
+    import shutil
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except ImportError:
+        raise SystemExit("--mp4 needs ffmpeg: run with  "
+                         "uv run --with imageio-ffmpeg ...  or install ffmpeg")
+
+
+def _encode_h264(path, frames, fps, crf):
+    if not frames:
+        raise RuntimeError("no frames captured")
+    cmd = [_ffmpeg_exe(), "-y", "-f", "mjpeg", "-framerate", f"{fps:.3f}",
+           "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
+           "-pix_fmt", "yuv420p", path]
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    for jpg in frames:
+        p.stdin.write(jpg)
+    p.stdin.close()
+    err = p.stderr.read()
+    if p.wait() != 0:
+        raise SystemExit("ffmpeg failed:\n" + err.decode("utf-8", "replace")[-800:])
+
+
 def _stamp():
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -206,10 +254,14 @@ def main():
     s.add_argument("-o", "--out")
     s.add_argument("--gray", action="store_true", help="desaturate (needs Pillow)")
 
-    r = sub.add_parser("record", help="record the stream to an AVI")
+    r = sub.add_parser("record", help="record the stream to an AVI (or MP4 with --mp4)")
     r.add_argument("seconds", type=float)
     r.add_argument("-o", "--out")
     r.add_argument("--gray", action="store_true", help="desaturate (needs Pillow)")
+    r.add_argument("--mp4", action="store_true",
+                   help="transcode to H.264 MP4, smaller files (needs ffmpeg)")
+    r.add_argument("--crf", type=int, default=23,
+                   help="H.264 quality for --mp4, lower is better (default 23)")
 
     a = ap.parse_args()
     cam = Camera(a.host, a.user, a.password)
@@ -217,7 +269,10 @@ def main():
         path = cam.snapshot(a.out, gray=a.gray)
         print(f"wrote {path}")
     elif a.cmd == "record":
-        path, n, fps = cam.record(a.out, a.seconds, gray=a.gray)
+        if a.mp4:
+            path, n, fps = cam.record_mp4(a.out, a.seconds, gray=a.gray, crf=a.crf)
+        else:
+            path, n, fps = cam.record(a.out, a.seconds, gray=a.gray)
         print(f"wrote {path}  ({n} frames, {fps:.1f} fps)")
 
 
