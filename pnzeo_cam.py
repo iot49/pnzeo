@@ -44,30 +44,33 @@ class Camera:
                                      headers={"Authorization": self.auth})
         return urllib.request.urlopen(req, timeout=timeout)
 
-    def snapshot(self, path=None, timeout=10):
+    def snapshot(self, path=None, timeout=10, gray=False):
         """Save a single JPEG. Returns the path written."""
         path = path or f"snapshot_{_stamp()}.jpg"
         with self._open("/media/?action=snapshot", timeout) as r:
             data = r.read()
+        if gray:
+            data = _to_gray(data)
         with open(path, "wb") as f:
             f.write(data)
         return path
 
-    def frames(self, timeout=10):
+    def frames(self, timeout=10, gray=False):
         """Yield JPEG frames (bytes) from the MJPEG stream, forever."""
         with self._open("/media/?action=stream", timeout) as r:
             while True:
                 length = _content_length(r)
                 if length is None:
                     return
-                yield _read_exact(r, length)
+                jpg = _read_exact(r, length)
+                yield _to_gray(jpg) if gray else jpg
 
-    def record(self, path=None, seconds=10, timeout=10):
+    def record(self, path=None, seconds=10, timeout=10, gray=False):
         """Record the MJPEG stream to a Motion-JPEG AVI. Returns (path, nframes, fps)."""
         path = path or f"clip_{_stamp()}.avi"
         jpegs = []
         start = time.monotonic()
-        for jpg in self.frames(timeout):
+        for jpg in self.frames(timeout, gray):
             jpegs.append(jpg)
             if time.monotonic() - start >= seconds:
                 break
@@ -75,6 +78,24 @@ class Camera:
         fps = len(jpegs) / elapsed if elapsed > 0 else 1.0
         _write_mjpeg_avi(path, jpegs, fps)
         return path, len(jpegs), fps
+
+
+# ---- Optional grayscale (the app's "B&W" toggle) ----------------------------
+# In low light the camera's color frames have a magenta cast: IR contaminates
+# the color channels and that is not invertible. Desaturating to gray discards
+# the broken color, matching what the app's B&W button does. Needs Pillow:
+#   uv run --with pillow pnzeo_cam.py snap --gray
+
+def _to_gray(jpeg_bytes):
+    import io
+    try:
+        from PIL import Image
+    except ImportError:
+        raise SystemExit("--gray needs Pillow: run with  uv run --with pillow ...")
+    im = Image.open(io.BytesIO(jpeg_bytes)).convert("L")
+    out = io.BytesIO()
+    im.save(out, "JPEG", quality=90)
+    return out.getvalue()
 
 
 # ---- MJPEG multipart parsing ------------------------------------------------
@@ -183,18 +204,20 @@ def main():
 
     s = sub.add_parser("snap", help="save a single JPEG")
     s.add_argument("-o", "--out")
+    s.add_argument("--gray", action="store_true", help="desaturate (needs Pillow)")
 
     r = sub.add_parser("record", help="record the stream to an AVI")
     r.add_argument("seconds", type=float)
     r.add_argument("-o", "--out")
+    r.add_argument("--gray", action="store_true", help="desaturate (needs Pillow)")
 
     a = ap.parse_args()
     cam = Camera(a.host, a.user, a.password)
     if a.cmd == "snap":
-        path = cam.snapshot(a.out)
+        path = cam.snapshot(a.out, gray=a.gray)
         print(f"wrote {path}")
     elif a.cmd == "record":
-        path, n, fps = cam.record(a.out, a.seconds)
+        path, n, fps = cam.record(a.out, a.seconds, gray=a.gray)
         print(f"wrote {path}  ({n} frames, {fps:.1f} fps)")
 
 

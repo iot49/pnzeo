@@ -37,6 +37,22 @@ python3 pnzeo_cam.py record 10            # 10 s -> clip_<timestamp>.avi
 python3 pnzeo_cam.py record 10 -o door.avi
 ```
 
+### Low-light color: the magenta cast
+
+In dim light the color frames have a magenta tint. The camera's IR-cut filter
+works (daylight is normal color), but in low light the infrared contaminates
+the color channels, and that is not reversible — the true colors are gone.
+`--gray` desaturates to a clean black-and-white, the same thing the phone app's
+B&W toggle does. It needs Pillow, so run it through `uv`:
+
+```bash
+uv run --with pillow pnzeo_cam.py snap --gray
+uv run --with pillow pnzeo_cam.py record 10 --gray
+```
+
+The snapshot and record commands themselves have no dependencies; only
+`--gray` pulls in Pillow.
+
 The camera address, user, and password default to `192.168.178.58`, `admin`,
 and empty. Override per command:
 
