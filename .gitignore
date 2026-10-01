@@ -1,0 +1,7 @@
+# Captured media
+snapshot_*.jpg
+clip_*.avi
+*.jpg
+*.jpeg
+*.avi
+*.mjpeg
